@@ -1,6 +1,6 @@
 #!/bin/bash
 ## Basic Tools
-yum install -y telnet sysstat gcc g++ zip unzip wget ntpdate sed lrzsz
+yum install -y telnet sysstat gcc g++ zip unzip wget ntpdate sed lrzsz net-tools
 
 ## Basic Config
 setenforce 0
