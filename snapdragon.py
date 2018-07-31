@@ -18,16 +18,6 @@ class zkservice(object):
             if node.is_active():
                 yield node
 
-    def get_aligned_node(self):
-        for node in self.get_nodes():
-            if node.is_aligned():
-                yield node
-
-    def get_unaligned_node(self):
-        for node in self.get_nodes():
-            if not node.is_aligned():
-                yield node
-
     def exists(self, name):
         if self.zk.exists(zkservice.service + "/" + name):
             return name
@@ -40,7 +30,9 @@ class zkservice(object):
         return None
 
     def get_node(self, name):
-        return zknode(zk, name, zkservice.service + "/" + name)
+        if not self.zk.exists(zkservice.service + "/" + name):
+            self.zk.create(zkservice.service + "/" + name)
+        return zknode(self.zk, name, zkservice.service + "/" + name)
 
 
 class zknode(object):
@@ -57,7 +49,7 @@ class zknode(object):
             self.stat = stat
 
     def is_active(self):
-        return len(self.data) > 0
+        return len(self.data) > 0 and not self.data.startswith("tcp://")
 
     def get_name(self):
         return self.name
@@ -65,12 +57,9 @@ class zknode(object):
     def get_data(self):
         return self.data
 
-    def is_aligned(self):
-        return self.data.startswith(prefix + ":")
-
     def update(self, target):
         if len(self.nodes) == 0:
-            zk.create(self.path + "/0", target.encode())
+            self.zk.create(self.path + "/0", target.encode())
         else:
             self.zk.set(self.path + "/" + self.nodes[0], target.encode())
 
@@ -79,13 +68,30 @@ class k8sservice(object):
     def __init__(self, v1, namespace="dev"):
         self.v1 = v1
         self.namespace = namespace
-        self.services = v1.list_namespaced_service(namespace)
+        self.services = {}
+        for item in v1.list_namespaced_service(namespace).items:
+            ports = item.spec.ports
+            http_port = None
+            for port in ports:
+                if port.node_port is not None :
+                    http_port = str(port.node_port)
+            if http_port is not None:
+                self.services[item.metadata.name] = http_port
 
     def get_services(self):
-        for item in self.services.items:
-            ports = item.spec.ports
-            if len(ports) == 1 and ports[0].node_port is not None and ports[0].node_port > 0:
-                yield item.metadata.name, str(ports[0].node_port)
+        return self.services.values()
+
+    def get_service(self, name):
+        return self.services.get(name)
+
+
+def get_name(url):
+    i = url.find("://")
+    i = 0 if i < 0 else i + 3
+    url = url[i:]
+    j = url.find(":")
+    j = len(url) if j < 0 else j
+    return url[:j]
 
 
 if __name__ == '__main__':
@@ -95,47 +101,63 @@ if __name__ == '__main__':
     parser.add_argument('-u', action="store_true", help="list all unaligned services")
     parser.add_argument('-p', action="store_true", help="print the updates to be done")
     parser.add_argument('-x', action="store_true", help="execute the updates")
-    parser.add_argument('-z', default="sy-suz-dev01:2181", help="zookeeper url, eg sy-suz-dev01:2181")
+
+    parser.add_argument('-f', default="10.1.62.23:2181", help="zookeeper(from） url, eg 10.1.62.23:2181")
+    parser.add_argument('-t', default="sy-suz-dev01:2181", help="zookeeper(to) url, eg sy-suz-dev01:2181")
     parser.add_argument('-k', default="10.1.62.23", help="endpoint prefix, eg 10.1.62.23")
 
     namespace = parser.parse_args()
 
-    zkhost = namespace.z
+    zk_client_from = KazooClient(hosts=namespace.f)
+    zk_client_to = KazooClient(hosts=namespace.t)
+    zk_client_from.start()
+    zk_client_to.start()
+
     prefix = namespace.k
 
     config.load_kube_config()
     v1 = client.CoreV1Api()
-    zk = KazooClient(hosts=zkhost)
-    zk.start()
-    zks = zkservice(zk)
+    zks_from = zkservice(zk_client_from)
+    zks_to = zkservice(zk_client_to)
     k8ss = k8sservice(v1)
 
     if namespace.l:
-        for node in zks.get_nodes():
-            print(node.get_name() + ":" + node.get_data())
+        for node in zks_from.get_nodes():
+            print(node.get_name() + ", " + node.get_data() + ", " + zks_to.get_node(node.get_name()).get_data())
     elif namespace.a:
-        for node in zks.get_aligned_node():
-            print(node.get_name() + ":" + node.get_data())
+        for node in zks_from.get_nodes():
+            name = get_name(node.get_data())
+            port = k8ss.get_service(name)
+            node_to = zks_to.get_node(node.get_name())
+            if port is not None and node_to.get_data() == prefix + ":" + port:
+                print(node.get_name() + ", " + name + ", " + node_to.get_data())
     elif namespace.u:
-        for node in zks.get_unaligned_node():
-            print(node.get_name() + ":" + node.get_data())
+        for node in zks_from.get_nodes():
+            name = get_name(node.get_data())
+            port = k8ss.get_service(name)
+            node_to = zks_to.get_node(node.get_name())
+            if port is None or node_to.get_data() != prefix + ":" + port:
+                print(node.get_name() + ", " + name + ", " + node_to.get_data())
     elif namespace.p:
-        for item, port in k8ss.get_services():
-            name = zks.exists(item)
-            if name is not None:
-                node = zks.get_node(name)
-                target = prefix + ":" + port
-                if target != node.get_data():
-                    print(name + " setting from " + node.get_data() + " to " + target + " of " + item)
+        for node_from in zks_from.get_nodes():
+            name = get_name(node_from.get_data())
+            port = k8ss.get_service(name)
+            node_to = zks_to.get_node(node_from.get_name())
+            if port is None:
+                continue
+            if node_to.get_data() != prefix + ":" + port:
+                print(node_from.get_name() + " setting from " + node_to.get_data() + " to " + prefix + ":" + port + " of " + name)
     elif namespace.x:
-        for item, port in k8ss.get_services():
-            name = zks.exists(item)
-            if name is not None:
-                node = zks.get_node(name)
-                target = prefix + ":" + port
-                if target != node.get_data():
-                    print(name + " setting from " + node.get_data() + " to " + target + " of " + item)
-                    node.update(target)
+        for node_from in zks_from.get_nodes():
+            name = get_name(node_from.get_data())
+            port = k8ss.get_service(name)
+            node_to = zks_to.get_node(node_from.get_name())
+            if port is None:
+                continue
+            if node_to.get_data() != prefix + ":" + port:
+                print(node_from.get_name() + " setting from " + node_to.get_data() + " to " + prefix + ":" + port + " of " + name)
+                node_to.update(prefix + ":" + port)
     else:
-        print("zkhost:" + zkhost)
+        print("zkfrom:" + namespace.f)
+        print("zkto:" + namespace.t)
         print("prefix:" + prefix)
