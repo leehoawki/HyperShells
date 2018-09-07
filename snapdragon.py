@@ -80,6 +80,7 @@ class k8sservice(object):
         self.v1 = v1
         self.namespace = namespace
         self.services = {}
+        self.pods = {}
         for item in v1.list_namespaced_service(namespace).items:
             ports = item.spec.ports
             http_port = None
@@ -89,11 +90,17 @@ class k8sservice(object):
             if http_port is not None:
                 self.services[item.metadata.name] = http_port
 
+        for item in  v1.list_namespaced_pod(namespace).items:
+            self.pods[item.status.pod_ip] = item.metadata.labels['app']
+
     def get_services(self):
         return self.services.values()
 
     def get_service(self, name):
         return self.services.get(name)
+
+    def get_pod(self, ip):
+        return self.pods.get(ip)
 
 
 def get_name(url):
@@ -114,7 +121,7 @@ if __name__ == '__main__':
     parser.add_argument('-x', action="store_true", help="execute the updates")
 
     parser.add_argument('-f', default="10.1.62.23:2181", help="zookeeper(from） url, eg 10.1.62.23:2181")
-    parser.add_argument('-t', default="sy-suz-dev01:2181", help="zookeeper(to) url, eg sy-suz-dev01:2181")
+    parser.add_argument('-t', default="localhost:2181", help="zookeeper(to) url, eg localhost:2181")
     parser.add_argument('-k', default="10.1.62.23", help="endpoint prefix, eg 10.1.62.23")
 
     namespace = parser.parse_args()
@@ -158,6 +165,9 @@ if __name__ == '__main__':
                 continue
             if node_to.get_data() != prefix + ":" + port:
                 print(node_from.get_name() + " setting from " + node_to.get_data() + " to " + prefix + ":" + port + " of " + name)
+
+        for node_from in zks_from.get_dubbo_nodes():
+            pass
     elif namespace.x:
         for node_from in zks_from.get_http_nodes():
             name = get_name(node_from.get_data())
