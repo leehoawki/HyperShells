@@ -16,37 +16,42 @@ class zkservice(object):
     def get_http_nodes(self):
         for name in self.zk.get_children(zkservice.http_service):
             path = zkservice.http_service + "/" + name
-            node = zknode(self.zk, name, path)
+            node = http_node(self.zk, name, path)
             if node.is_active():
                 yield node
 
     def get_dubbo_nodes(self):
         for name in self.zk.get_children(zkservice.dubbo_service):
-            providers = self.zk.get_children(zkservice.dubbo_service + "/" + name + "/providers/")
-            if len(providers) > 0:
-                url = urllib.parse.unquote(providers[0])
-                i = url.find("://")
-                j = url[i + 3:].find(":")
-                yield url[i + 3: i + j + 3]
+            path = zkservice.dubbo_service + "/" + name
+            node = dubbo_node(self.zk, name, path)
+            if node.is_active():
+                yield node
 
     def get_http_node(self, name):
         if not self.zk.exists(zkservice.http_service + "/" + name):
             self.zk.create(zkservice.http_service + "/" + name)
-        return zknode(self.zk, name, zkservice.http_service + "/" + name)
+        return http_node(self.zk, name, zkservice.http_service + "/" + name)
+
+    def get_dubbo_node(self, name):
+        if not self.zk.exists(zkservice.dubbo_service + "/" + name):
+            self.zk.create(zkservice.dubbo_service + "/" + name)
+        return dubbo_node(self.zk, name, zkservice.dubbo_service + "/" + name)
 
     def exists(self, name):
         if self.zk.exists(zkservice.http_service + "/" + name):
             return name
-        if len(name) > 2 and name[-1].isdigit() and name[-2] == "v" and self.zk.exists(zkservice.http_service + "/" + name[:-2]):
+        if len(name) > 2 and name[-1].isdigit() and name[-2] == "v" and self.zk.exists(
+                zkservice.http_service + "/" + name[:-2]):
             return name[:-2]
         if len(name) > 3 and name[-3:] == "api" and self.zk.exists(zkservice.http_service + "/" + name[:-3]):
             return name[:-3]
-        if len(name) > 3 and name[-3:] == "api" and self.zk.exists(zkservice.http_service + "/" + name[:-3] + "service"):
+        if len(name) > 3 and name[-3:] == "api" and self.zk.exists(
+                zkservice.http_service + "/" + name[:-3] + "service"):
             return name[:-3] + "service"
         return None
 
 
-class zknode(object):
+class http_node(object):
     def __init__(self, zk, name, path):
         self.zk = zk
         self.name = name
@@ -75,6 +80,46 @@ class zknode(object):
             self.zk.set(self.path + "/" + self.nodes[0], target.encode())
 
 
+class dubbo_node(object):
+    def __init__(self, zk, name, path):
+        self.zk = zk
+        self.name = name
+        self.path = path
+        self.url = None
+        self.pod_ip = None
+        self.pod_port = None
+        self.providers = []
+        if self.zk.exists(path + "/providers/"):
+            self.providers = self.zk.get_children(path + "/providers/")
+            if len(self.providers) > 0:
+                url = urllib.parse.unquote(self.providers[0])
+                i = url.find("://")
+                j = url[i + 3:].find(":")
+                k = url[i + j + 4:].find("/")
+                self.url = url
+                self.pod_ip = url[i + 3: i + j + 3]
+                self.pod_port = url[i + j + 4: i + j + k + 4]
+
+    def get_name(self):
+        return self.name
+
+    def get_data(self):
+        return self.url
+
+    def is_active(self):
+        return len(self.providers) > 0
+
+    def update(self, target):
+        if len(self.providers) == 0:
+            if not self.zk.exists(self.path + "/providers"):
+                self.zk.create(self.path + "/providers/")
+            self.zk.create(self.path + "/providers/" + urllib.parse.quote_plus(target))
+        else:
+            for provider in self.providers:
+                self.zk.delete(self.path + "/providers/" + provider)
+            self.zk.create(self.path + "/providers/" + urllib.parse.quote_plus(target))
+
+
 class k8sservice(object):
     def __init__(self, v1, namespace="dev"):
         self.v1 = v1
@@ -84,20 +129,32 @@ class k8sservice(object):
         for item in v1.list_namespaced_service(namespace).items:
             ports = item.spec.ports
             http_port = None
+            dubbo_port = None
             for port in ports:
-                if port.node_port is not None:
+                if port.node_port is not None and 31000 < port.node_port < 32000:
+                    dubbo_port = str(port.node_port)
+                elif port.node_port is not None:
                     http_port = str(port.node_port)
             if http_port is not None:
-                self.services[item.metadata.name] = http_port
-
-        for item in  v1.list_namespaced_pod(namespace).items:
-            self.pods[item.status.pod_ip] = item.metadata.labels['app']
+                self.services[item.metadata.name] = (http_port, dubbo_port)
+        for item in v1.list_namespaced_pod(namespace).items:
+            app = item.metadata.labels.get('app')
+            if app is not None:
+                self.pods[item.status.pod_ip] = app
 
     def get_services(self):
         return self.services.values()
 
     def get_service(self, name):
         return self.services.get(name)
+
+    def get_service_http_port(self, name):
+        if self.services.get(name) is not None:
+            return self.services.get(name)[0]
+
+    def get_service_dubbo_port(self, name):
+        if self.services.get(name) is not None:
+            return self.services.get(name)[1]
 
     def get_pod(self, ip):
         return self.pods.get(ip)
@@ -145,39 +202,59 @@ if __name__ == '__main__':
     elif namespace.a:
         for node in zks_from.get_http_nodes():
             name = get_name(node.get_data())
-            port = k8ss.get_service(name)
+            port = k8ss.get_service_http_port(name)
             node_to = zks_to.get_http_node(node.get_name())
             if port is not None and node_to.get_data() == prefix + ":" + port:
                 print(node.get_name() + ", " + name + ", " + node_to.get_data())
     elif namespace.u:
         for node in zks_from.get_http_nodes():
             name = get_name(node.get_data())
-            port = k8ss.get_service(name)
+            port = k8ss.get_service_http_port(name)
             node_to = zks_to.get_http_node(node.get_name())
             if port is None or node_to.get_data() != prefix + ":" + port:
                 print(node.get_name() + ", " + name + ", " + node_to.get_data())
     elif namespace.p:
+        print("-----------------http-service------------------")
         for node_from in zks_from.get_http_nodes():
             name = get_name(node_from.get_data())
-            port = k8ss.get_service(name)
+            port = k8ss.get_service_http_port(name)
             node_to = zks_to.get_http_node(node_from.get_name())
             if port is None:
                 continue
             if node_to.get_data() != prefix + ":" + port:
                 print(node_from.get_name() + " setting from " + node_to.get_data() + " to " + prefix + ":" + port + " of " + name)
-
+        print("-----------------dubbo-service-----------------")
         for node_from in zks_from.get_dubbo_nodes():
-            pass
+            service = k8ss.get_pod(node_from.pod_ip)
+            port = k8ss.get_service_dubbo_port(service)
+            node_to = zks_to.get_dubbo_node(node_from.get_name())
+            if service is None or port is None:
+                port = str(int(node_from.pod_port) + 12000)
+            target = node_from.url.replace(node_from.pod_ip, prefix).replace(node_from.pod_port, port)
+            if str(node_to.get_data()) != target:
+                print(node_from.get_name() + " setting from " + str(node_to.get_data()) + " to " + target)
     elif namespace.x:
+        print("-----------------http-service------------------")
         for node_from in zks_from.get_http_nodes():
             name = get_name(node_from.get_data())
-            port = k8ss.get_service(name)
+            port = k8ss.get_service_http_port(name)
             node_to = zks_to.get_http_node(node_from.get_name())
             if port is None:
                 continue
             if node_to.get_data() != prefix + ":" + port:
                 print(node_from.get_name() + " setting from " + node_to.get_data() + " to " + prefix + ":" + port + " of " + name)
                 node_to.update(prefix + ":" + port)
+        print("-----------------dubbo-service-----------------")
+        for node_from in zks_from.get_dubbo_nodes():
+            service = k8ss.get_pod(node_from.pod_ip)
+            port = k8ss.get_service_dubbo_port(service)
+            node_to = zks_to.get_dubbo_node(node_from.get_name())
+            if service is None or port is None:
+                port = str(int(node_from.pod_port) + 12000)
+            target = node_from.url.replace(node_from.pod_ip, prefix).replace(node_from.pod_port, port)
+            if str(node_to.get_data()) != target:
+                print(node_from.get_name() + " setting from " + str(node_to.get_data()) + " to " + target)
+                node_to.update(target)
     else:
         print("zkfrom:" + namespace.f)
         print("zkto:" + namespace.t)
