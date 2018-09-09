@@ -40,8 +40,7 @@ class zkservice(object):
     def exists(self, name):
         if self.zk.exists(zkservice.http_service + "/" + name):
             return name
-        if len(name) > 2 and name[-1].isdigit() and name[-2] == "v" and self.zk.exists(
-                zkservice.http_service + "/" + name[:-2]):
+        if len(name) > 2 and name[-1].isdigit() and name[-2] == "v" and self.zk.exists(zkservice.http_service + "/" + name[:-2]):
             return name[:-2]
         if len(name) > 3 and name[-3:] == "api" and self.zk.exists(zkservice.http_service + "/" + name[:-3]):
             return name[:-3]
@@ -103,6 +102,11 @@ class dubbo_node(object):
     def get_name(self):
         return self.name
 
+    def get_simple_data(self):
+        if self.pod_ip is not None and self.pod_port is not None:
+            return self.pod_ip + ":" + self.pod_port
+        return ""
+
     def get_data(self):
         return self.url
 
@@ -135,8 +139,7 @@ class k8sservice(object):
                     dubbo_port = str(port.node_port)
                 elif port.node_port is not None:
                     http_port = str(port.node_port)
-            if http_port is not None:
-                self.services[item.metadata.name] = (http_port, dubbo_port)
+            self.services[item.metadata.name] = (http_port, dubbo_port)
         for item in v1.list_namespaced_pod(namespace).items:
             app = item.metadata.labels.get('app')
             if app is not None:
@@ -197,8 +200,12 @@ if __name__ == '__main__':
     k8ss = k8sservice(v1)
 
     if namespace.l:
+        print("-----------------http-service------------------")
         for node in zks_from.get_http_nodes():
             print(node.get_name() + ", " + node.get_data() + ", " + zks_to.get_http_node(node.get_name()).get_data())
+        print("-----------------dubbo-service-----------------")
+        for node in zks_from.get_dubbo_nodes():
+            print(node.get_name() + ", " + node.get_simple_data() + ", " + zks_to.get_dubbo_node(node.get_name()).get_simple_data())
     elif namespace.a:
         for node in zks_from.get_http_nodes():
             name = get_name(node.get_data())
