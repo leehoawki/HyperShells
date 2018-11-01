@@ -173,7 +173,7 @@ def get_name(url):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='timestamp command')
+    parser = argparse.ArgumentParser(description='snapdragon command')
     parser.add_argument('-l', action="store_true", help="list all services")
     parser.add_argument('-a', action="store_true", help="list all aligned services")
     parser.add_argument('-u', action="store_true", help="list all unaligned services")
