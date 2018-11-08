@@ -46,8 +46,8 @@ def create(name, swagger_url, description, url):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='easy-mock fucker command')
-    parser.add_argument('-l', action="store_true", help="list all services")
-    parser.add_argument('-s', action="store_true", help="list all swaggerable services")
+    parser.add_argument('-l', action="store_true", help="list all swaggerable services")
+    parser.add_argument('-s', action="store_true", help="create all swaggerable services")
     parser.add_argument('-u', default="admin", help="easymock name")
     parser.add_argument('-p', default="123456", help="easymock password")
     parser.add_argument('-k', default="10.1.62.23", help="k8s host")
@@ -61,7 +61,13 @@ if __name__ == '__main__':
 
     if namespace.l:
         for service, port in k8ss.get_services().items():
-            print(service + ":" + port)
+            try:
+                swagger_url = "http://" + namespace.k + ":" + port + "/v2/api-docs"
+                response = requests.get(swagger_url, timeout=0.2)
+                if response.status_code == 200:
+                    print(service + ":" + port)
+            except Exception as e:
+                pass
     elif namespace.s:
         target = namespace.t
         token = login(namespace.u, namespace.p)
