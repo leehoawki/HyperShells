@@ -63,7 +63,7 @@ if __name__ == '__main__':
         for service, port in k8ss.get_services().items():
             try:
                 swagger_url = "http://" + namespace.k + ":" + port + "/v2/api-docs"
-                response = requests.get(swagger_url, timeout=0.2)
+                response = requests.get(swagger_url, timeout=1)
                 if response.status_code == 200:
                     print(service + ":" + port)
             except Exception as e:
@@ -74,7 +74,7 @@ if __name__ == '__main__':
         for service, port in k8ss.get_services().items():
             try:
                 swagger_url = "http://" + namespace.k + ":" + port + "/v2/api-docs"
-                response = requests.get(swagger_url, timeout=0.2)
+                response = requests.get(swagger_url, timeout=1)
                 if response.status_code == 200:
                     print("creating easymock project for service:" + service)
                     create(service, swagger_url, '', "/" + service)
