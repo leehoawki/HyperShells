@@ -73,7 +73,7 @@ if __name__ == '__main__':
         token = login(namespace.u, namespace.p)
         for service, port in k8ss.get_services().items():
             try:
-                swagger_url = "http://" + namespace.k + ":" + port + "/v2/api-docs"
+                swagger_url = "http://" + service + ".dev.svc.cluster.local:8080" + "/v2/api-docs"
                 response = requests.get(swagger_url, timeout=1)
                 if response.status_code == 200:
                     print("creating easymock project for service:" + service)
