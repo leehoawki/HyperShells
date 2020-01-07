@@ -7,9 +7,9 @@ DAYS = 5
 
 def getIndices():
     indices = []
-    begin_date = (datetime.datetime.now() - datetime.timedelta(days=DAYS)).strftime("%Y-%m-%d")
-    begin_date = datetime.datetime.strptime(begin_date, "%Y-%m-%d")
-    end_date = datetime.datetime.strptime(time.strftime('%Y-%m-%d', time.localtime(time.time())), "%Y-%m-%d")
+    begin_date = (datetime.datetime.now() - datetime.timedelta(days=DAYS)).strftime("%Y%m%d")
+    begin_date = datetime.datetime.strptime(begin_date, "%Y%m%d")
+    end_date = datetime.datetime.strptime(time.strftime('%Y%m%d', time.localtime(time.time())), "%Y%m%d")
     while begin_date < end_date:
         date_str = begin_date.strftime("%Y%m%d")
         indices.append(date_str)
