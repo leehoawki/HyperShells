@@ -33,18 +33,7 @@ def getCpm(client, indice):
     return str(int(response['aggregations']['x']['value']))
 
 
-def getUV(client, app):
-    pass
-
-
-def getPV(client, app):
-    pass
-
-
 if __name__ == '__main__':
     client = Elasticsearch(hosts=["http://10.65.3.34:19200/"])
     for i in getIndices():
         print(i + ":" + getCpm(client, "cloud-monitor_service_cpm_hour-" + i))
-
-    print("UV" + getUV(client, "cloud-monitor"))
-    print("PV" + getPV(client, "cloud-monitor"))
