@@ -175,8 +175,6 @@ def main():
 
             for tag in tags_to_delete:
                 print("{0}:{1}".format(repository, tag))
-        else:
-            print("No tags availables for " + repository)
 
 
 if __name__ == '__main__':
