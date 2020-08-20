@@ -14,7 +14,7 @@ import (
 func main() {
 	e := echo.New()
 	parser := argparse.NewParser("simplehttpserver", "Simple Http Server ...")
-	p := parser.String("p", "int", &argparse.Options{Required: false, Default: "8000", Help: "port"})
+	p := parser.String("p", "port", &argparse.Options{Required: false, Default: "8000", Help: "port"})
 	err := parser.Parse(os.Args)
 	if err != nil {
 		fmt.Print(parser.Usage(err))
