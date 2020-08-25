@@ -45,6 +45,7 @@ func (s *ScanIp) GetIpOpenPort(ip string) {
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func(seed int) {
+			defer wg.Done()
 			for _, v := range ports {
 				if v%10 != seed {
 					continue
