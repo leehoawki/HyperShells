@@ -30,24 +30,23 @@ func main() {
 		return
 	}
 
-	scanIP := ScanIp{timeout: 10}
+	scanIP := ScanIp{timeout: 100}
 	scanIP.GetIpOpenPort(*ip)
 }
 
 type ScanIp struct {
 	timeout int
-	process int
 }
 
 func (s *ScanIp) GetIpOpenPort(ip string) {
 	ports := s.getAllPorts()
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func(seed int) {
 			defer wg.Done()
 			for _, v := range ports {
-				if v%10 != seed {
+				if v%100 != seed {
 					continue
 				}
 				opened := s.isOpen(ip, v)
